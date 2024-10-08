@@ -2,7 +2,8 @@ import streamlit as st
 import vertexai
 from vertexai.preview.vision_models import Image, ImageGenerationModel
 from google.oauth2 import service_account
-import os
+import tempfile
+from io import BytesIO
 
 # Initialize GCP credentials and Vertex AI
 gcp_credentials = st.secrets["gcp_service_account"]
@@ -24,11 +25,11 @@ if st.button("Generate Image"):
     if prompt and uploaded_file is not None:
         with st.spinner("Generating Image..."):
             try:
-                # Save the uploaded image temporarily
-                input_image_path = "./input-image.png"
-                with open(input_image_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                
+                # Save the uploaded image to a temporary location
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
+                    tmp_file.write(uploaded_file.getbuffer())
+                    input_image_path = tmp_file.name
+
                 # Load the image using vertexai
                 base_img = Image.load_from_file(location=input_image_path)
 
