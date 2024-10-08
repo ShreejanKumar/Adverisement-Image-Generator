@@ -1,47 +1,58 @@
 import streamlit as st
-import google.generativeai as genai
+import vertexai
+from vertexai.preview.vision_models import Image, ImageGenerationModel
 from google.oauth2 import service_account
-from google.cloud import aiplatform
-from vertexai.preview.vision_models import ImageGenerationModel
+import os
 
-# Define your image generation function
-def get_image(prompt, aspect_ratio):
-    gcp_credentials = st.secrets["gcp_service_account"]
-    credentials = service_account.Credentials.from_service_account_info(gcp_credentials)
-    gcp_project_id = gcp_credentials["project_id"]
-    
-    # Initialize AI Platform
-    aiplatform.init(project=gcp_project_id, credentials=credentials)
-    model = ImageGenerationModel.from_pretrained("imagen-3.0-generate-001")
-    
-    # Generate image
-    image = model.generate_images(prompt=prompt, aspect_ratio=aspect_ratio)
-    image[0].save(location="./gen-img1.png", include_generation_parameters=True)
+# Initialize GCP credentials and Vertex AI
+gcp_credentials = st.secrets["gcp_service_account"]
+credentials = service_account.Credentials.from_service_account_info(gcp_credentials)
+PROJECT_ID = gcp_credentials["project_id"]
+vertexai.init(project=PROJECT_ID, location="us-central1")
 
 # Streamlit app code
 st.title("Image Generator")
 
 # Input area for description
-book_description = st.text_area("Enter the Description:", height=300)
-aspect_ratios = ['1:1', '9:16', '16:9', '4:3', '3:4']
+prompt = st.text_area("Enter the prompt", height=100)
 
-# Selectbox for aspect ratio
-selected_ratio = st.selectbox("Select Aspect Ratio", options=aspect_ratios, index=1)
+# File uploader to take an image input
+uploaded_file = st.file_uploader("Choose an image...", type=["png", "jpg", "jpeg"])
 
 # Button to generate the image
 if st.button("Generate Image"):
-    if book_description:
+    if prompt and uploaded_file is not None:
         with st.spinner("Generating Image..."):
             try:
-                get_image(book_description, selected_ratio)
-                st.image("./gen-img1.png", caption='Generated Image', use_column_width=True)
-                st.success("Image generated successfully!")
-            except Exception as e:
-                error_message = str(e).lower()
-                if "safety filter" in error_message or "prohibited words" in error_message:
-                    st.error("The prompt violates the content policy. Please modify your description and try again.")
-                else:
-                    st.error("An error occurred while generating the image. Please try again.")
-    else:
-        st.error("Please enter a description to generate the image!")
+                # Save the uploaded image temporarily
+                input_image_path = "./input-image.png"
+                with open(input_image_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
+                # Load the image using vertexai
+                base_img = Image.load_from_file(location=input_image_path)
 
+                # Load the image generation model
+                model = ImageGenerationModel.from_pretrained("imagegeneration@006")
+
+                # Generate the edited image based on the prompt
+                images = model.edit_image(
+                    base_image=base_img,
+                    prompt=prompt,
+                    edit_mode="product-image",
+                )
+
+                # Save the generated image
+                output_image_path = "./output-image.png"
+                images[0].save(location=output_image_path, include_generation_parameters=False)
+
+                # Display the generated image in Streamlit
+                st.image(output_image_path, caption='Generated Image', use_column_width=True)
+                st.success("Image generated successfully!")
+
+                print(f"Created output image using {len(images[0]._image_bytes)} bytes")
+
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
+    else:
+        st.error("Please enter a prompt and upload an image to generate the output!")
